@@ -150,6 +150,7 @@ namespace AutoTOC
         static void CreateTOC(string basepath, string tocFile, string[] files)
         {
             FileStream fs = new FileStream(tocFile, FileMode.Create, FileAccess.Write);
+            long selfSizePosition = -1;
             fs.Write(BitConverter.GetBytes((int)0x3AB70C13), 0, 4);
             fs.Write(BitConverter.GetBytes((int)0x0), 0, 4);
             fs.Write(BitConverter.GetBytes((int)0x1), 0, 4);
@@ -165,12 +166,11 @@ namespace AutoTOC
                 fs.Write(BitConverter.GetBytes((ushort)0), 0, 2);//Flags
                 if (Path.GetFileName(file).ToLower() != "pcconsoletoc.bin")
                 {
-                    FileStream fs2 = new FileStream(basepath + file, FileMode.Open, FileAccess.Read);
-                    fs.Write(BitConverter.GetBytes((int)fs2.Length), 0, 4);//Filesize
-                    fs2.Close();
+                    fs.Write(BitConverter.GetBytes((int) (new FileInfo(basepath + file).Length)), 0, 4);//Filesize
                 }
                 else
                 {
+                    selfSizePosition = fs.Position;
                     fs.Write(BitConverter.GetBytes((int)0), 0, 4);//Filesize
                 }
                 fs.Write(BitConverter.GetBytes((int)0x0), 0, 4);//SHA1
@@ -181,6 +181,13 @@ namespace AutoTOC
                 foreach (char c in file)
                     fs.WriteByte((byte)c);
                 fs.WriteByte(0);
+            }
+            if (selfSizePosition >= 0)
+            {
+                // Write the size of our own TOC. This ensures TOC appears up to date when we try to update it later
+                // (important for DLC TOCs)
+                fs.Seek(selfSizePosition, SeekOrigin.Begin);
+                fs.Write(BitConverter.GetBytes((int)fs.Length), 0, 4);
             }
             fs.Close();
         }

@@ -5,6 +5,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 
+// ME3Tweaks AutoTOC
+// Originally by SirCxyrtyx, updated for LE by HenBagle
+//
+
 namespace AutoTOC
 {
     class Program
@@ -19,7 +23,6 @@ namespace AutoTOC
 
         static void Main(string[] args)
         {
-            Console.WriteLine("Detecting game...");
             string gameDir;
 
             if (args.Length == 1)
@@ -45,18 +48,19 @@ namespace AutoTOC
                     {
                         switch(game){
                             case MEGame.LE1:
-                                gameDir = Path.Combine(gameDir, "ME1");
+                                gameDir = Path.Combine(gameDir, "Game", "ME1");
                                 break;
                             case MEGame.LE2:
-                                gameDir = Path.Combine(gameDir, "ME2");
+                                gameDir = Path.Combine(gameDir, "Game", "ME2");
                                 break;
                             case MEGame.LE3:
-                                gameDir = Path.Combine(gameDir, "ME3");
+                                gameDir = Path.Combine(gameDir, "Game", "ME3");
                                 break;
                             default:
                                 throw new ArgumentException();
                         }
                     }
+                    Console.WriteLine("Game location detected in registry");
                 }
                 catch (ArgumentException e){
                     Console.WriteLine("Not a supported Mass Effect game");
@@ -75,7 +79,7 @@ namespace AutoTOC
                 return;
             }
 
-            Console.WriteLine("Generating TOCs...");
+            Console.WriteLine($"Generating TOCs for {gameDir}");
             GenerateTocFromGamedir(gameDir);
             Console.WriteLine("Done!");
         }
@@ -84,8 +88,16 @@ namespace AutoTOC
         {
             string baseDir = Path.Combine(gameDir, @"BIOGame\");
             string dlcDir = Path.Combine(baseDir, @"DLC\");
-            List<string> folders = (new DirectoryInfo(dlcDir)).GetDirectories().Select(d => d.FullName).ToList();
+            List<string> folders = new List<string>();
             folders.Add(baseDir);
+            if(Directory.Exists(dlcDir))
+            {
+                folders.Concat((new DirectoryInfo(dlcDir)).GetDirectories().Select(d => d.FullName));
+            }
+            else
+            {
+                Console.WriteLine("DLC folder not detected, TOCing basegame only...");
+            }
             Task.WhenAll(folders.Select(loc => TOCAsync(loc))).Wait();
         }
 
@@ -223,7 +235,8 @@ namespace AutoTOC
             {
                 // TODO
                 // Get LE path from registry
-                throw new NotImplementedException("LE registry key unknown");
+                string hkey64 = @"HKEY_LOCAL_MACHINE\SOFTWARE\BioWare\Mass Effect Legendary Edition";
+                return (string)Registry.GetValue(hkey64, "Install Dir", null);
             }
             else
             {

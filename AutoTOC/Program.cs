@@ -7,7 +7,6 @@ using Microsoft.Win32;
 
 // ME3Tweaks AutoTOC
 // Originally by SirCxyrtyx, updated for LE by HenBagle
-//
 
 namespace AutoTOC
 {
@@ -92,7 +91,7 @@ namespace AutoTOC
             folders.Add(baseDir);
             if(Directory.Exists(dlcDir))
             {
-                folders.Concat((new DirectoryInfo(dlcDir)).GetDirectories().Select(d => d.FullName));
+                folders.AddRange((new DirectoryInfo(dlcDir)).GetDirectories().Select(d => d.FullName));
             }
             else
             {
@@ -233,7 +232,6 @@ namespace AutoTOC
         {
             if(game != MEGame.ME3)
             {
-                // TODO
                 // Get LE path from registry
                 string hkey64 = @"HKEY_LOCAL_MACHINE\SOFTWARE\BioWare\Mass Effect Legendary Edition";
                 return (string)Registry.GetValue(hkey64, "Install Dir", null);
@@ -241,12 +239,9 @@ namespace AutoTOC
             else
             {
                 // Get ME3 path from registry
-                string hkey32 = @"HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\";
-                //string hkey64 = @"HKEY_LOCAL_MACHINE\SOFTWARE\";
-                string subkey = @"BioWare\Mass Effect 3";
+                string hkey32 = @"HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\BioWare\Mass Effect 3";
 
-                string keyName = hkey32 + subkey;
-                return (string)Registry.GetValue(keyName, "Install Dir", null);
+                return (string)Registry.GetValue(hkey32, "Install Dir", null);
             }
 
         }

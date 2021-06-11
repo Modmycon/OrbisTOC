@@ -30,7 +30,7 @@ namespace AutoTOC
         /// <returns></returns>
         public static IEnumerable<string> GetTocableFiles(string path)
         {
-            string[] Pattern = { "*.pcc", "*.afc", "*.bik", "*.bin", "*.tlk", "*.cnd", "*.upk", "*.tfc", "*.isb", "*.usf" };
+            string[] Pattern = { "*.pcc", "*.afc", "*.bik", "*.bin", "*.tlk", "*.cnd", "*.upk", "*.tfc", "*.isb", "*.usf", "*.txt", "*.ini", "*.dlc" };
             var res = new List<string>();
             foreach (string s in Pattern)
                 res.AddRange(Directory.GetFiles(path, s));

@@ -78,13 +78,16 @@ namespace AutoTOC
             string dlcDir = Path.Combine(baseDir, @"DLC\");
             List<string> folders = new List<string>();
             folders.Add(baseDir);
-            if(Directory.Exists(dlcDir))
+            if (game != MEGame.LE1)
             {
-                folders.AddRange((new DirectoryInfo(dlcDir)).GetDirectories().Select(d => d.FullName));
-            }
-            else
-            {
-                Console.WriteLine("DLC folder not detected, TOCing basegame only...");
+                if(Directory.Exists(dlcDir))
+                {
+                    folders.AddRange((new DirectoryInfo(dlcDir)).GetDirectories().Select(d => d.FullName));
+                }
+                else
+                {
+                    Console.WriteLine("DLC folder not detected, TOCing basegame only...");
+                }
             }
             Task.WhenAll(folders.Select(loc => TOCAsync(loc, game))).Wait();
         }

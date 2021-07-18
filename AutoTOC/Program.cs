@@ -77,7 +77,6 @@ namespace AutoTOC
             string baseDir = Path.Combine(gameDir, @"BIOGame\");
             string dlcDir = Path.Combine(baseDir, @"DLC\");
             List<string> folders = new List<string>();
-            folders.Add(baseDir);
             if (game != MEGame.LE1)
             {
                 if(Directory.Exists(dlcDir))
@@ -89,18 +88,34 @@ namespace AutoTOC
                     Console.WriteLine("DLC folder not detected, TOCing basegame only...");
                 }
             }
-            Task.WhenAll(folders.Select(loc => TOCAsync(loc, game))).Wait();
+            Task.WhenAll(folders.Select(loc => TOCDLCAsync(loc, game)).Prepend(TOCBasegameAsync(baseDir, game))).Wait();
         }
 
-        static Task TOCAsync(string tocLoc, MEGame game)
+        static Task TOCBasegameAsync(string tocLoc, MEGame game)
         {
-            return Task.Run(() => CreateTOC(tocLoc, game));
+            return Task.Run(() =>
+            {
+                var TOC = TOCCreator.CreateBasegameTOCForDirectory(tocLoc, game);
+                TOC.WriteToFile(Path.Combine(tocLoc, "PCConsoleTOC.bin"));
+            });
         }
 
-        static void CreateTOC(string tocLoc, MEGame game)
+        static Task TOCDLCAsync(string tocLoc, MEGame game)
         {
-            var TOC = TOCCreator.CreateTOCForDirectory(tocLoc, game);
-            TOC.WriteToFile(Path.Combine(tocLoc, "PCConsoleTOC.bin"));
+            return Task.Run(() => CreateDLCTOC(tocLoc, game));
+        }
+
+        static void CreateDLCTOC(string tocLoc, MEGame game)
+        {
+            try
+            {
+                var TOC = TOCCreator.CreateDLCTOCForDirectory(tocLoc, game);
+                TOC.WriteToFile(Path.Combine(tocLoc, "PCConsoleTOC.bin"));
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"No TOCable files in {tocLoc}, may just be packed DLC.");
+            }
         }
 
         static string[] ValidExecutables = { "MassEffect1.exe", "MassEffect2.exe", "MassEffect3.exe" };

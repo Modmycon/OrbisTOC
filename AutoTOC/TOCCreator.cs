@@ -5,7 +5,7 @@ using System.Linq;
 
 /*
  *  This is modified code from the LegendaryExplorerCore codebase
- *  Taken from LEC on 2021/6/10, at https://github.com/ME3Tweaks/ME3Explorer/commit/0e01b9cfb85668a775afa22ba268e94b525ddc2e
+ *  Taken from LEC on 2021/7/17
  */
 
 namespace AutoTOC
@@ -52,7 +52,7 @@ namespace AutoTOC
             var folders = folder.GetDirectories();
             if (folders.Length != 0)
             {
-                if (!folder.Name.Equals("BioGame", StringComparison.InvariantCultureIgnoreCase))
+                if (!directoryName.Equals("BioGame", StringComparison.InvariantCultureIgnoreCase))
                 {
                     //treat as dlc and include all folders.
                     foreach (DirectoryInfo f in folders)
@@ -60,17 +60,20 @@ namespace AutoTOC
                 }
                 else
                 {
-                    //biogame, only do cookedpcconsole and movies.
+                    //BioGame, only do certain folders
                     foreach (DirectoryInfo f in folders)
                     {
-                        if (f.Name == "CookedPCConsole" || f.Name == "Movies" || f.Name == "DLC")
+                        if (f.Name == "CookedPCConsole" || f.Name == "Movies")
                             res.AddRange(GetFiles(Path.Combine(basefolder, f.Name), isLE2LE3));
+                        // LE2 and LE3 have the DLC folders included in TOC
+                        else if (isLE2LE3 && f.Name == "DLC")
+                            res.AddRange(GetFiles(Path.Combine(basefolder, f.Name), isLE2LE3));
+                        // LE1 has the Content/Packages/ISACT folder included in TOC
                         else if (f.Name == "Content")
                             res.AddRange(GetFiles(Path.Combine(basefolder, f.Name, "Packages", "ISACT"), isLE2LE3));
-
                     }
                 }
-            }
+            }   
 
             return res;
         }
@@ -79,45 +82,34 @@ namespace AutoTOC
         /// <summary>
         /// Creates the binary for a TOC file for a specified directory root
         /// </summary>
-        /// <param name="directory">DLC_ directory, like DLC_CON_JAM, or the BIOGame directory of the game.</param>
+        /// <param name="directory">The BIOGame directory of the game.</param>
         /// <param name="game"></param>
         /// <returns>Memorystream of TOC created, null if there are no entries or input was invalid</returns>
-        public static MemoryStream CreateTOCForDirectory(string directory, MEGame game)
+        public static MemoryStream CreateBasegameTOCForDirectory(string directory, MEGame game)
         {
             bool isLe2Le3 = game == MEGame.LE2 || game == MEGame.LE3;
             var files = GetFiles(directory, isLe2Le3);
-            var originalFilesList = files;
+
+            if (game == MEGame.LE1)
+            {
+                files = GetLE1Files(files, directory);
+            }
+
             if (files.Count > 0)
             {
-                //Strip the non-relative path information
+                // Basegame TOC
                 string file0fullpath = files[0];
-                int dlcFolderStartSubStrPos = file0fullpath.IndexOf("DLC_", StringComparison.InvariantCultureIgnoreCase);
-                if (dlcFolderStartSubStrPos > 0 && game != MEGame.LE1)
+                int biogameStrPos = file0fullpath.IndexOf("BIOGame", StringComparison.InvariantCultureIgnoreCase);
+                if (game != MEGame.ME3)
                 {
-                    // DLC TOC
-                    files = files.Select(x => x.Substring(dlcFolderStartSubStrPos)).ToList();
-                    files = files.Select(x => x.Substring(x.IndexOf(Path.DirectorySeparatorChar) + 1)).ToList(); //remove first slash
+                    files.AddRange(GetFiles(Path.Combine(directory.Substring(0, biogameStrPos), "Engine", "Shaders"), isLe2Le3));
                 }
-                else
-                {
-                    // Basegame TOC
-                    int biogameStrPos = file0fullpath.IndexOf("BIOGame", StringComparison.InvariantCultureIgnoreCase);
-                    if (game != MEGame.ME3)
-                    {
-                        files.AddRange(GetFiles(Path.Combine(directory.Substring(0, biogameStrPos), "Engine", "Shaders"), isLe2Le3));
-                        //TODO: is this required? It seems to include some DLC files in the TOC, but not all?
-                        //if (game is MEGame.LE3)
-                        //{
 
-                        //    var dlcFolders = new DirectoryInfo(Path.Combine(directory, "DLC")).GetDirectories();
-                        //    files.AddRange(dlcFolders.Where(f => f.Name.StartsWith("DLC_", StringComparison.OrdinalIgnoreCase)).Select(f => f.ToString())
-                        //                             .SelectMany(dlcDir => GetFiles(dlcDir, isLe2Le3)));
-                        //}
-                    }
-                    if (biogameStrPos > 0)
-                    {
-                        files = files.Select(x => x.Substring(biogameStrPos)).ToList();
-                    }
+                var originalFilesList = files; // Original file paths, to use for getting filesizes after we shorten the paths
+
+                if (biogameStrPos > 0)
+                {
+                    files = files.Select(x => x.Substring(biogameStrPos)).ToList();
                 }
 
                 var entries = originalFilesList.Select((t, i) => (files[i], (int)new FileInfo(t).Length)).ToList();
@@ -125,6 +117,81 @@ namespace AutoTOC
                 return CreateTOCForEntries(entries);
             }
             throw new Exception("There are no TOCable files in the specified directory.");
+        }
+
+        /// <summary>
+        /// Creates the binary for a TOC file for a specified DLC directory root
+        /// </summary>
+        /// <param name="directory">A DLC folder, such as DLC_CON_JAM</param>
+        /// <param name="game"></param>
+        /// <returns>Memorystream of TOC created, null if there are no entries or input was invalid</returns>
+        public static MemoryStream CreateDLCTOCForDirectory(string directory, MEGame game)
+        {
+            bool isLe2Le3 = game == MEGame.LE2 || game == MEGame.LE3;
+            var files = GetFiles(directory, isLe2Le3);
+            var originalFilesList = files; // Original file paths, to use for getting filesizes after we shorten the paths
+
+            if (files.Count > 0)
+            {
+                string file0fullpath = files[0];
+                int dlcFolderStartSubStrPos = file0fullpath.IndexOf("DLC_", StringComparison.InvariantCultureIgnoreCase);
+                if (dlcFolderStartSubStrPos == -1 || game == MEGame.LE1)
+                {
+                    throw new Exception("Not a TOCable DLC directory.");
+                }
+
+                files = files.Select(x => x.Substring(dlcFolderStartSubStrPos)).ToList();
+                files = files.Select(x => x.Substring(x.IndexOf(Path.DirectorySeparatorChar) + 1)).ToList(); //remove first slash
+                var entries = originalFilesList.Select((t, i) => (files[i], (int)new FileInfo(t).Length)).ToList();
+                return CreateTOCForEntries(entries);
+
+            }
+            throw new Exception("There are no TOCable files in the specified directory.");
+        }
+
+        /// <summary>
+        /// Parses LE1 DLC Autoload files and creates a list of files with correct DLC overrides.
+        /// Only one instance of a specific filename will be output by this method
+        /// </summary>
+        /// <param name="basegameFiles">List of files for basegame toc</param>
+        /// <param name="biogameDirectory">LE1 BioGame directory</param>
+        /// <returns>List of files for toc, including DLC supercedances</returns>
+        public static List<string> GetLE1Files(List<string> basegameFiles, string biogameDirectory)
+        {
+            // Build dictionary of DLCs in mount priority
+            Dictionary<int, string> dlcMounts = new Dictionary<int, string>();
+            string[] dlcList = Directory.GetDirectories(Path.Combine(biogameDirectory, "DLC"), "*.*", SearchOption.TopDirectoryOnly);
+            foreach (var dlcFolder in dlcList)
+            {
+                string autoLoadPath = Path.Combine(dlcFolder, "autoload.ini");  //CHECK IF FILE EXISTS?
+                if (File.Exists(autoLoadPath))
+                {
+                    DuplicatingIni dlcAutoload = DuplicatingIni.LoadIni(autoLoadPath);
+                    int mount = Convert.ToInt32(dlcAutoload["ME1DLCMOUNT"]["ModMount"].Value);
+                    dlcMounts.Add(mount, dlcFolder);
+                }
+            }
+
+            // filename, filepath
+            Dictionary<string, string> outFiles = new Dictionary<string, string>();
+            foreach (var dlc in dlcMounts.OrderByDescending(t => t.Key))
+            {
+                var files = GetFiles(dlc.Value, false);
+                foreach (var file in files)
+                {
+                    var name = new FileInfo(file).Name.ToUpper();
+                    if(!outFiles.ContainsKey(name)) outFiles.Add(name, file);
+                }
+            }
+
+            // Add in basegame files
+            foreach (var file in basegameFiles)
+            {
+                var name = new FileInfo(file).Name.ToUpper();
+                if(!outFiles.ContainsKey(name)) outFiles.Add(name, file);
+            }
+
+            return outFiles.Values.ToList();
         }
 
         /// <summary>

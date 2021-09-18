@@ -165,6 +165,9 @@ namespace AutoTOC
             string[] dlcList = Directory.GetDirectories(Path.Combine(biogameDirectory, "DLC"), "*.*", SearchOption.TopDirectoryOnly);
             foreach (var dlcFolder in dlcList)
             {
+                if (!(new DirectoryInfo(dlcFolder).Name).StartsWith("DLC_", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 string autoLoadPath = Path.Combine(dlcFolder, "autoload.ini");  //CHECK IF FILE EXISTS?
                 if (File.Exists(autoLoadPath))
                 {

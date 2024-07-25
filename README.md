@@ -5,4 +5,4 @@ Run from the command line, pass it the game executable, and it will generate a T
 
 eg. ```.\OrbisTOC.exe "D:\PKGs\Mass Effect Legendary Edition\ME3\LTCG-BioGame.elf"```
 
-You can also drag a game elf file directly onto AutoTOC in Windows Explorer to TOC.
+You can also drag a game elf file directly onto OrbisTOC in Windows Explorer to TOC.

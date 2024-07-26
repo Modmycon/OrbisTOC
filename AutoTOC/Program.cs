@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -96,7 +96,7 @@ namespace AutoTOC
             return Task.Run(() =>
             {
                 var TOC = TOCCreator.CreateBasegameTOCForDirectory(tocLoc, game);
-                TOC.WriteToFile(Path.Combine(tocLoc, "PCConsoleTOC.bin"));
+                TOC.WriteToFile(Path.Combine(tocLoc, "OrbisTOC.bin"));
             });
         }
 
@@ -110,7 +110,7 @@ namespace AutoTOC
             try
             {
                 var TOC = TOCCreator.CreateDLCTOCForDirectory(tocLoc, game);
-                TOC.WriteToFile(Path.Combine(tocLoc, "PCConsoleTOC.bin"));
+                TOC.WriteToFile(Path.Combine(tocLoc, "OrbisTOC.bin"));
             }
             catch (Exception e)
             {

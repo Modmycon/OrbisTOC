@@ -1,243 +1,245 @@
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
+/*
+ * C# Stream Helpers
+ *
+ * Copyright (C) 2015-2018 Pawel Kolodziejski
+ * Copyright (C) 2019 ME3Explorer
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ *
+ */
 
 /*
  *  This is modified code from the LegendaryExplorerCore codebase
  *  Taken from LEC on 2021/6/10, at https://github.com/ME3Tweaks/ME3Explorer/commit/0e01b9cfb85668a775afa22ba268e94b525ddc2e
  */
 
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+
 namespace AutoTOC
 {
-    // Todo: Convert to EndianReader
-    public class TOCBinFile
+    public static class StreamHelpers
     {
-        public const int TOCMagicNumber = 0x3AB70C13;
 
-        /// <summary>
-        /// Single entry in TOC file, contained in a hash bucket
-        /// </summary>
-        [DebuggerDisplay("TOCEntry 0x{offset.ToString(\"8\")}, {name}, file size {size}")]
-        public class Entry
+        public static byte[] ReadToBuffer(this Stream stream, int count)
         {
-            /// <summary>
-            /// Offset of the entry. Not used for writing to disk, only for reading in
-            /// </summary>
-            public int offset;
+            var buffer = new byte[count];
+            if (stream.Read(buffer, 0, count) != count)
+                throw new Exception("Stream read error!");
+            return buffer;
+        }
 
-            /// <summary>
-            /// Size of this entry on disk. Not used for writing to disk, only for reading in
-            /// </summary>
-            public int entrydisksize;
+        public static byte[] ReadToBuffer(this Stream stream, uint count)
+        {
+            return stream.ReadToBuffer((int)count);
+        }
 
-            /// <summary>
-            /// Flags for the file. It's a bitmask
-            /// </summary>
-            public short flags;
+        public static byte[] ReadToBuffer(this Stream stream, long count)
+        {
+            return stream.ReadToBuffer((int)count);
+        }
 
-            /// <summary>
-            /// Size of the file in bytes
-            /// </summary>
-            public int size;
+        public static void WriteFromBuffer(this Stream stream, byte[] buffer)
+        {
+            stream.Write(buffer, 0, buffer.Length);
+        }
 
-            /// <summary>
-            /// The SHA1 of the file. Not used if the flag for SHA1 is not set
-            /// </summary>
-            public byte[] sha1;
+        public static void WriteGuid(this Stream stream, Guid value)
+        {
+            var data = value.ToByteArray();
 
-            /// <summary>
-            /// The relative path of the file
-            /// </summary>
-            public string name;
+            Debug.Assert(data.Length == 16);
 
-            /// <summary>
-            /// Size this entry consumes on disk with byte alignment
-            /// </summary>
-            public short ToCSize
+            stream.WriteInt32(BitConverter.ToInt32(data, 0));
+            stream.WriteInt16(BitConverter.ToInt16(data, 4));
+            stream.WriteInt16(BitConverter.ToInt16(data, 6));
+            stream.Write(data, 8, 8);
+        }
+
+
+        public static void WriteToFile(this MemoryStream stream, string outfile)
+        {
+            long oldPos = stream.Position;
+            stream.Position = 0;
+            using (FileStream file = new FileStream(outfile, FileMode.Create, System.IO.FileAccess.Write))
+                stream.CopyTo(file);
+            stream.Position = oldPos;
+        }
+
+        public static void WriteFromStream(this Stream stream, Stream inputStream, int count)
+        {
+            var buffer = new byte[0x10000];
+            do
             {
-                get
-                {
-                    short memSize = MemorySize;
-                    return (short)
-                        (memSize // Base size of the object
-                         + ((memSize % 4 == 0) ? 0 : (4 - (memSize % 4))));    // Padding to 4 byte alignment.
-                }
-            }
-
-            /// <summary>
-            /// Size this entry alone consumes in memory.
-            /// </summary>
-            public short MemorySize
-            {
-                get
-                {
-                    return (short)
-                        (2 * sizeof(short) // ToCSize, Flags
-                         + 1 * sizeof(int)    // Filesize
-                         + 20 // SHA1
-                              // DVD information (not used on PC)
-                              //+ Sectors.Length * sizeof(int) // integer for each sector
-                         + (name.Length + 1));    // String + Null Terminator
-                }
-            }
-
-            /// <summary>
-            /// Writes this entry out to the stream
-            /// </summary>
-            /// <param name="fs">Stream to write to</param>
-            /// <param name="dontWriteEntrySize">If ToCSize should be written out. The final entry in the TOC file will not write this out</param>
-            /// <param name="byteAligned">If entries should byte align the next entry. ME3 does not use byte alignment, LE games do</param>
-            public void WriteOut(MemoryStream fs, bool dontWriteEntrySize)
-            {
-                var expectedEndPos = (int)fs.Position + ToCSize;
-                fs.WriteInt16(dontWriteEntrySize ? (short)0 : ToCSize);
-                fs.WriteInt16(flags);
-                fs.WriteInt32(size);
-                if (sha1 != null)
-                    fs.Write(sha1,0,sha1.Length);
+                int readed = inputStream.Read(buffer, 0, Math.Min(buffer.Length, count));
+                if (readed > 0)
+                    stream.Write(buffer, 0, readed);
                 else
-                    fs.WriteZeros(20); // must not have flag for CRC
-
-                fs.WriteStringASCIINull(name);
-                var padding = expectedEndPos - fs.Position;
-                fs.WriteZeros((int)padding); // Byte align
-            }
+                    break;
+                count -= readed;
+            } while (count != 0);
         }
 
-        public List<TOCHashTableEntry> HashBuckets = new List<TOCHashTableEntry>();
-
-        public TOCBinFile()
+        public static void WriteFromStream(this Stream stream, Stream inputStream, uint count)
         {
+            WriteFromStream(stream, inputStream, (int)count);
         }
 
-        public class TOCHashTableEntry
+        public static void WriteFromStream(this Stream stream, Stream inputStream, long count)
         {
-            internal int offset { get; set; }
-            internal int entrycount { get; set; }
-            public List<Entry> TOCEntries { get; } = new List<Entry>();
+            WriteFromStream(stream, inputStream, (int)count);
         }
 
-        //public void ReadFile(MemoryStream ms)
-        //{
-        //    var reader = new EndianReader(ms);
-        //    uint magic = (uint)reader.ReadInt32();
-        //    if (magic != TOCMagicNumber)
-        //    {
-        //        throw new Exception("Not a TOC file, bad magic header");
-        //    }
-
-        //    var mediaTableCount = reader.ReadInt32(); // Should be 0
-        //    var hashTableCount = reader.ReadInt32();
-
-        //    long maxReadValue = 0;
-        //    for (int i = 0; i < hashTableCount; i++)
-        //    {
-        //        var pos = reader.Position;
-        //        var newEntry = new TOCHashTableEntry()
-        //        {
-        //            offset = reader.ReadInt32(),
-        //            entrycount = reader.ReadInt32(),
-        //        };
-        //        HashBuckets.Add(newEntry);
-
-        //        var resumePosition = reader.Position;
-        //        // Read Entries
-
-        //        reader.Position = newEntry.offset + pos;
-        //        for (int j = 0; j < newEntry.entrycount; j++)
-        //        {
-
-        //            Entry e = new()
-        //            {
-        //                offset = (int)reader.Position,
-        //                entrydisksize = reader.ReadInt16(),
-        //                flags = reader.ReadInt16(),
-        //                size = reader.ReadInt32(),
-        //                sha1 = reader.ReadToBuffer(0x14), // 20
-        //                name = reader.ReadStringASCIINull()
-        //            };
-
-        //            reader.Seek(e.offset + e.entrydisksize, SeekOrigin.Begin);
-
-        //            maxReadValue = Math.Max(maxReadValue, reader.Position);
-
-        //            newEntry.TOCEntries.Add(e);
-        //        }
-
-        //        reader.Position = resumePosition;
-        //    }
-        //}
-
-
-        public void UpdateEntry(int Index, int size)
+        public static string ReadStringLatin1Null(this Stream stream)
         {
-            // Uhhhhhhhhhhhh
-            // Not sure how useful this is
-            throw new NotImplementedException("Not implemented in LEC right now");
-            //if (Entries == null || Index < 0 || Index >= Entries.Count)
-            //    return;
-            //Entry e = Entries[Index];
-            //e.size = size;
-            //Entries[Index] = e;
-        }
-
-        public MemoryStream Save()
-        {
-            var lastBucketWithEntries = HashBuckets.LastOrDefault(x => x.TOCEntries.Any());
-
-            MemoryStream fs = new MemoryStream();
-
-            fs.WriteInt32(TOCBinFile.TOCMagicNumber); // Endian check
-            fs.WriteInt32(0x0); // Media Data Count
-            fs.WriteInt32(HashBuckets.Count); // Hash Table Count
-
-            var hashTableStartPos = fs.Position;
-
-            // Skip the hash table for now, we will come back and rewrite it
-            fs.Seek((int)HashBuckets.Count * 8, SeekOrigin.Current);
-
-            for (int i = 0; i < HashBuckets.Count; i++)
+            string str = "";
+            for (; ; )
             {
-                var hb = HashBuckets[i];
-
-                var hbEntryStartPos = fs.Position;
-                for (int j = 0; j < hb.TOCEntries.Count; j++)
-                {
-                    var entry = hb.TOCEntries[j];
-                    var dontWriteEntrySize = hb == lastBucketWithEntries && j == (hb.TOCEntries.Count - 1);
-                    entry.WriteOut(fs, dontWriteEntrySize); // byte aligns automatically
-                }
-
-
-
-                var nextEntryPos = fs.Position;
-
-                // Update hash table info
-                fs.Seek(hashTableStartPos + (i * 8), SeekOrigin.Begin);
-                if (hb.TOCEntries.Any())
-                {
-                    var firstEntryOffset = (int)(hbEntryStartPos - fs.Position);
-                    fs.WriteInt32(firstEntryOffset); // Offset from hash entry to first TOC file entry
-                    fs.WriteInt32(hb.TOCEntries.Count); // How many files have this hash
-                }
-                else
-                {
-                    fs.WriteInt32(0); // No Offset
-                    fs.WriteInt32(0); // 0 Entries
-                }
-
-                fs.Seek(nextEntryPos, SeekOrigin.Begin);
+                char c = (char)stream.ReadByte();
+                if (c == 0)
+                    break;
+                str += c;
             }
-            return fs;
+            return str;
+        }
+
+        public static string ReadStringUnicode(this Stream stream, int count)
+        {
+            var buffer = stream.ReadToBuffer(count);
+            return Encoding.Unicode.GetString(buffer);
+        }
+
+        public static string ReadStringUnicodeNull(this Stream stream, int count)
+        {
+            return stream.ReadStringUnicode(count).Trim('\0');
+        }
+
+        // DO NOT REMOVE ASCII CODE
+        #region ASCII SUPPORT
+        public static string ReadStringASCII(this Stream stream, int count)
+        {
+            byte[] buffer = stream.ReadToBuffer(count);
+            return Encoding.ASCII.GetString(buffer);
+        }
+
+        public static string ReadStringASCIINull(this Stream stream)
+        {
+            string str = "";
+            for (; ; )
+            {
+                char c = (char)stream.ReadByte();
+                if (c == 0)
+                    break;
+                str += c;
+            }
+            return str;
+        }
+
+        public static string ReadStringASCIINull(this Stream stream, int count)
+        {
+            return stream.ReadStringASCII(count).Trim('\0');
+        }
+
+        public static void WriteStringASCII(this Stream stream, string str)
+        {
+            stream.Write(Encoding.ASCII.GetBytes(str), 0, Encoding.ASCII.GetByteCount(str));
+        }
+
+        public static void WriteStringASCIINull(this Stream stream, string str)
+        {
+            stream.WriteStringASCII(str + "\0");
+        }
+
+        #endregion
+
+        public static void WriteStringUnicode(this Stream stream, string str)
+        {
+            stream.Write(Encoding.Unicode.GetBytes(str), 0, Encoding.Unicode.GetByteCount(str));
+        }
+
+        public static void WriteStringUnicodeNull(this Stream stream, string str)
+        {
+            stream.WriteStringUnicode(str);
+            stream.WriteByte(0);
+            stream.WriteByte(0);
+        }
+
+        public static void WriteUInt64(this Stream stream, ulong data)
+        {
+            stream.Write(BitConverter.GetBytes(data), 0, sizeof(ulong));
+        }
+
+        public static void WriteInt64(this Stream stream, long data)
+        {
+            stream.Write(BitConverter.GetBytes(data), 0, sizeof(long));
+        }
+
+        public static void WriteUInt32(this Stream stream, uint data)
+        {
+            stream.Write(BitConverter.GetBytes(data), 0, sizeof(uint));
+        }
+
+        public static void WriteInt32(this Stream stream, int data)
+        {
+            stream.Write(BitConverter.GetBytes(data), 0, sizeof(int));
         }
 
         /// <summary>
-        /// Gets a list of all entries, without hash table information
+        /// Writes the stream to file from the beginning. This should only be used on streams that support seeking. The position is restored after the file has been written.
         /// </summary>
-        /// <returns></returns>
-        public List<Entry> GetAllEntries() => HashBuckets.Where(x => x.TOCEntries.Any()).SelectMany(x => x.TOCEntries).ToList();
+        /// <param name="stream">Stream to write from</param>
+        /// <param name="outfile">File to write to</param>
+        public static void WriteToFile(this Stream stream, string outfile)
+        {
+            long oldPos = stream.Position;
+            stream.Position = 0;
+            using (var file = new FileStream(outfile, FileMode.Create, System.IO.FileAccess.Write))
+                stream.CopyTo(file);
+            stream.Position = oldPos;
+        }
+
+        public static void WriteUInt16(this Stream stream, ushort data)
+        {
+            stream.Write(BitConverter.GetBytes(data), 0, sizeof(ushort));
+        }
+
+        public static void WriteInt16(this Stream stream, short data)
+        {
+            stream.Write(BitConverter.GetBytes(data), 0, sizeof(short));
+        }
+
+        public static void WriteDouble(this Stream stream, double data)
+        {
+            stream.Write(BitConverter.GetBytes(data), 0, sizeof(double));
+        }
+
+        private const int DefaultBufferSize = 8 * 1024;
+
+        public static void WriteZeros(this Stream stream, uint count)
+        {
+            for (int i = 0; i < count; i++)
+                stream.WriteByte(0);
+        }
+
+        public static void WriteZeros(this Stream stream, int count)
+        {
+            WriteZeros(stream, (uint)count);
+        }
+
+        private static void ThrowEndOfStreamException() => throw new EndOfStreamException();
     }
 }

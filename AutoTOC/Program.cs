@@ -1,166 +1,288 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
-using Microsoft.Win32;
-
-// ME3Tweaks AutoTOC
-// Originally by SirCxyrtyx, updated for LE by HenBagle
 
 namespace AutoTOC
 {
-    class Program
+
+    /*
+     *  This is modified code from the LegendaryExplorerCore codebase, which was in turn taken from ALOT Installer V4
+     *  Taken from LEC on 2021/7/17
+     */
+
+    public class DuplicatingIni
     {
-        static void Main(string[] args)
+        public Section this[string sectionName]
         {
-            string gameDir;
-            MEGame game = MEGame.ME3;
-
-            if (args.Length == 1)
+            get
             {
-                // Path is passed in, hopefully is game .exe
-                gameDir = args[0];
-                if (gameDir.EndsWith(".exe"))
+                var existingSection = Sections.FirstOrDefault(x => x.Header == sectionName);
+                if (existingSection != null) return existingSection;
+                var ns = new Section()
                 {
-                    (gameDir, game) = GetGamepathFromExe(gameDir);
-                }
+                    Header = sectionName
+                };
+                Sections.Add(ns);
+                return ns;
             }
-            else if (args.Length == 2 && args[0] == "-r")
+            set
             {
-                try {
-                    game = (MEGame)Enum.Parse(typeof(MEGame), args[1], true);
-                    gameDir = GetGamepathFromRegistry(game);
-                    if(game != MEGame.ME3)
-                    {
-                        switch(game){
-                            case MEGame.LE1:
-                                gameDir = Path.Combine(gameDir, "Game", "ME1");
-                                break;
-                            case MEGame.LE2:
-                                gameDir = Path.Combine(gameDir, "Game", "ME2");
-                                break;
-                            case MEGame.LE3:
-                                gameDir = Path.Combine(gameDir, "Game", "ME3");
-                                break;
-                            default:
-                                throw new ArgumentException();
-                        }
-                    }
-                    Console.WriteLine("Game location detected in registry");
+                var sectionToReplace = Sections.FirstOrDefault(x => x.Header == sectionName);
+                if (sectionToReplace != null)
+                {
+                    Sections.Remove(sectionToReplace);
                 }
-                catch (ArgumentException e){
-                    Console.WriteLine("Not a supported Mass Effect game");
-                    return;
-                }
-                catch {
-                    Console.WriteLine("Unable to detect gamepath from registry");
-                    return;
-                }
+                Sections.Add(value);
             }
-            else
-            {
-                Console.WriteLine("Requires one argument: .exe of the game you're trying to TOC.");
-                Console.WriteLine("(eg. \"D:\\Origin Games\\Mass Effect Legendary Edition\\ME3\\Binaries\\Win64\\MassEffect3.exe)");
-                Console.WriteLine("Detect game from registry with -r {game}. Options: ME3, LE1, LE2, LE3");
-                return;
-            }
-
-            Console.WriteLine($"Generating TOCs for {gameDir}");
-            GenerateTocFromGamedir(gameDir, game);
-            Console.WriteLine("Done!");
         }
 
-        static void GenerateTocFromGamedir(string gameDir, MEGame game)
+        public List<Section> Sections = new List<Section>();
+
+        public IniEntry GetValue(string sectionname, string key)
         {
-            string baseDir = Path.Combine(gameDir, @"BIOGame\");
-            string dlcDir = Path.Combine(baseDir, @"DLC\");
-            List<string> folders = new List<string>();
-            if (game != MEGame.LE1)
+            var section = GetSection(sectionname);
+            return section?.GetValue(key);
+        }
+
+        public Section GetSection(string sectionname)
+        {
+            return Sections.FirstOrDefault(x => x.Header.Equals(sectionname, StringComparison.InvariantCultureIgnoreCase));
+        }
+
+        public Section GetOrAddSection(string sectionname)
+        {
+            var s = GetSection(sectionname);
+            if (s != null) return s;
+            s = new Section() { Header = sectionname };
+            Sections.Add(s);
+            return s;
+        }
+
+        public Section GetSection(Section section)
+        {
+            return Sections.FirstOrDefault(x => x.Header.Equals(section.Header, StringComparison.InvariantCultureIgnoreCase));
+        }
+
+        /// <summary>
+        /// Loads an ini file from disk
+        /// </summary>
+        /// <param name="iniFile"></param>
+        /// <returns></returns>
+        public static DuplicatingIni LoadIni(string iniFile)
+        {
+            return ParseIni(File.ReadAllText(iniFile));
+        }
+
+        public static DuplicatingIni ParseIni(string iniText)
+        {
+            DuplicatingIni di = new DuplicatingIni();
+            var splits = iniText.Split('\n');
+            Section currentSection = null;
+            foreach (var line in splits)
             {
-                if(Directory.Exists(dlcDir))
+                string trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed)) continue; //blank line
+                if (trimmed.StartsWith("[") && trimmed.EndsWith("]"))
                 {
-                    folders.AddRange((new DirectoryInfo(dlcDir)).GetDirectories().Select(d => d.FullName));
+                    //New section
+                    currentSection = new Section()
+                    {
+                        Header = trimmed.Trim('[', ']')
+                    };
+                    di.Sections.Add(currentSection);
+                }
+                else if (currentSection == null)
+                {
+                    continue; //this parser only supports section items
                 }
                 else
                 {
-                    Console.WriteLine("DLC folder not detected, TOCing basegame only...");
+                    currentSection.Entries.Add(new IniEntry(trimmed));
                 }
             }
-            Task.WhenAll(folders.Select(loc => TOCDLCAsync(loc, game)).Prepend(TOCBasegameAsync(baseDir, game))).Wait();
+            return di;
         }
 
-        static Task TOCBasegameAsync(string tocLoc, MEGame game)
-        {
-            return Task.Run(() =>
-            {
-                var TOC = TOCCreator.CreateBasegameTOCForDirectory(tocLoc, game);
-                TOC.WriteToFile(Path.Combine(tocLoc, "OrbisTOC.bin"));
-            });
-        }
 
-        static Task TOCDLCAsync(string tocLoc, MEGame game)
+        /// <summary>
+        /// Converts this DuplicatingIni object into an ini file as a string.
+        /// </summary>
+        /// <returns></returns>
+        public override string ToString()
         {
-            return Task.Run(() => CreateDLCTOC(tocLoc, game));
-        }
-
-        static void CreateDLCTOC(string tocLoc, MEGame game)
-        {
-            try
+            StringBuilder sb = new StringBuilder();
+            bool isFirst = true;
+            foreach (var section in Sections)
             {
-                var TOC = TOCCreator.CreateDLCTOCForDirectory(tocLoc, game);
-                TOC.WriteToFile(Path.Combine(tocLoc, "OrbisTOC.bin"));
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"No TOCable files in {tocLoc}, may just be packed DLC.");
-            }
-        }
-
-        static string[] ValidExecutables = { "MassEffect1.exe", "MassEffect2.exe", "MassEffect3.exe" };
-
-        static (string, MEGame) GetGamepathFromExe(string path)
-        {
-            if(File.Exists(path) && ValidExecutables.Any((exe) => path.EndsWith(exe)))
-            {
-                var dir = path.Substring(0, path.LastIndexOf("Binaries", StringComparison.OrdinalIgnoreCase));
-                if (path.EndsWith(ValidExecutables[0])) return (dir, MEGame.LE1);
-                if (path.EndsWith(ValidExecutables[1])) return (dir, MEGame.LE2);
-                if (path.EndsWith(ValidExecutables[2]))
+                if (!section.Entries.Any())
                 {
-                    var versionInfo = FileVersionInfo.GetVersionInfo(path);
-                    if (versionInfo.FileVersion.StartsWith("1")) return (dir, MEGame.ME3);
-                    else return (dir, MEGame.LE3);
+                    continue; //Do not write out empty sections.
                 }
-                // Should never get here
-                throw new ArgumentException("Executable file is not a supported Mass Effect game.");
+                if (isFirst)
+                {
+                    isFirst = false;
+                }
+                else
+                {
+                    sb.Append("\n");
+                }
+                sb.Append($"[{section.Header}]");
+                sb.Append("\n"); //AppendLine does \r\n which we don't want.
+                foreach (var line in section.Entries)
+                {
+                    if (line.HasValue)
+                    {
+                        sb.Append($"{line.Key}={line.Value}");
+                        sb.Append("\n"); //AppendLine does \r\n which we don't want.
+                    }
+                    else
+                    {
+                        sb.Append(line.RawText);
+                        sb.Append("\n"); //AppendLine does \r\n which we don't want.
+                    }
+                }
             }
-            throw new ArgumentException("Executable file is not a supported Mass Effect game.");
+
+            return sb.ToString();
         }
 
-        static string GetGamepathFromRegistry(MEGame game)
+        /// <summary>
+        /// Writes this ini file out to a file using the ToString() method
+        /// </summary>
+        /// <param name="filePath"></param>
+        /// <param name="encoding"></param>
+        public void WriteToFile(string filePath, Encoding encoding = null)
         {
-            if(game != MEGame.ME3)
+            WriteToFile(filePath, ToString(), encoding);
+        }
+
+        /// <summary>
+        /// Writes a specified ini string out to a file
+        /// </summary>
+        /// <param name="filePath"></param>
+        /// <param name="iniString"></param>
+        /// <param name="encoding"></param>
+        public void WriteToFile(string filePath, string iniString, Encoding encoding = null)
+        {
+            if(encoding == null) encoding = Encoding.UTF8;
+
+            FileStream fs = File.Open(filePath, FileMode.Create, FileAccess.Write);
+            StreamWriter sr = new StreamWriter(fs, encoding);
+            sr.Write(iniString);
+        }
+
+        [DebuggerDisplay("Ini Section [{Header}] with {Entries.Count} entries")]
+        public class Section
+        {
+            public string Header;
+            public List<IniEntry> Entries = new List<IniEntry>();
+
+            public IniEntry GetValue(string key)
             {
-                string hkey64 = @"HKEY_LOCAL_MACHINE\SOFTWARE\BioWare\Mass Effectâ„¢ Legendary Edition"; // Yes all that weird garbage in this name is required... but not for everyone
-                string test = (string)Registry.GetValue(hkey64, "Install Dir", null);
-                if (test != null)
+                return Entries.FirstOrDefault(x => x.Key != null && x.Key.Equals(key, StringComparison.InvariantCultureIgnoreCase));
+            }
+
+            public IniEntry this[string keyname]
+            {
+                get
                 {
-                    return test;
+                    var firstExistingEntry = Entries.FirstOrDefault(x => x.Key == keyname);
+                    if (firstExistingEntry != null) return firstExistingEntry;
+
+                    var ne = new IniEntry(keyname, "");
+                    Entries.Add(ne);
+                    return ne;
                 }
-                hkey64 = @"HKEY_LOCAL_MACHINE\SOFTWARE\BioWare\Mass Effect Legendary Edition"; //For those without weird garbage
-                test = (string)Registry.GetValue(hkey64, "Install Dir", null);
-                return test;
+                set
+                {
+                    var keyToReplace = Entries.FirstOrDefault(x => x.Key == keyname);
+                    if (keyToReplace != null)
+                    {
+                        Entries.Remove(keyToReplace);
+                    }
+                    Entries.Add(value);
+                }
             }
-            else
+
+            public void SetSingleEntry(string key, string value)
             {
-                // Get ME3 path from registry
-                string hkey32 = @"HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\BioWare\Mass Effect 3";
-
-                return (string)Registry.GetValue(hkey32, "Install Dir", null);
+                RemoveAllNamedEntries(key);
+                Entries.Add(new IniEntry(key, value));
             }
 
+            public void SetSingleEntry(string key, int value)
+            {
+                RemoveAllNamedEntries(key);
+                Entries.Add(new IniEntry(key, value.ToString()));
+            }
+
+            public void SetSingleEntry(string key, float value)
+            {
+                RemoveAllNamedEntries(key);
+                Entries.Add(new IniEntry(key, value.ToString(CultureInfo.InvariantCulture)));
+            }
+
+            /// <summary>
+            /// Removes all entries from this section with the specified name. If the name is not specified, all entries are removed.
+            /// </summary>
+            /// <param name="name"></param>
+            public void RemoveAllNamedEntries(string name = null)
+            {
+                if (name != null)
+                {
+                    Entries.RemoveAll(x => x.Key == name);
+                }
+                else
+                {
+                    Entries.Clear();
+                }
+            }
+        }
+
+        [DebuggerDisplay("IniEntry {Key} = {Value}")]
+
+        public class IniEntry
+        {
+            public string RawText;
+
+            public bool HasValue => Key != null && Value != null;
+
+            public IniEntry(string line)
+            {
+                RawText = line;
+                Key = KeyPair.Key;
+                Value = KeyPair.Value;
+            }
+            public IniEntry(string key, string value)
+            {
+                RawText = $"{key}={value}";
+                Key = KeyPair.Key;
+                Value = KeyPair.Value;
+            }
+
+            public string Key { get; set; }
+
+            public string Value { get; set; }
+
+            public KeyValuePair<string, string> KeyPair
+            {
+                get
+                {
+                    var separator = RawText.IndexOf('=');
+                    if (separator > 0)
+                    {
+                        string key = RawText.Substring(0, separator).Trim();
+                        string value = RawText.Substring(separator + 1).Trim();
+                        return new KeyValuePair<string, string>(key, value);
+                    }
+                    return new KeyValuePair<string, string>(null, null);
+                }
+            }
         }
     }
 }

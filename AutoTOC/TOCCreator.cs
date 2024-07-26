@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,7 +30,7 @@ namespace AutoTOC
         /// <returns></returns>
         public static IEnumerable<string> GetTocableFiles(string path)
         {
-            string[] Pattern = { "*.pcc", "*.afc", "*.bik", "*.bin", "*.tlk", "*.cnd", "*.upk", "*.tfc", "*.isb", "*.usf", "*.txt", "*.ini", "*.dlc" };
+            string[] Pattern = { "*.xxx", "*.pcc", "*.afc", "*.bik", "*.bin", "*.tlk", "*.cnd", "*.upk", "*.tfc", "*.isb", "*.usf", "*.txt", "*.ini", "*.dlc" };
             var res = new List<string>();
             foreach (string s in Pattern)
                 res.AddRange(Directory.GetFiles(path, s));
@@ -46,8 +46,8 @@ namespace AutoTOC
         {
             var res = new List<string>();
             string directoryName = Path.GetFileName(basefolder);
-            // Do not include the directory's existing PCConsoleTOC.bin
-            res.AddRange(GetTocableFiles(basefolder).Except(new[] { Path.Combine(basefolder, "PCConsoleTOC.bin") }, StringComparer.InvariantCultureIgnoreCase));
+            // Do not include the directory's existing OrbisTOC.bin
+            res.AddRange(GetTocableFiles(basefolder).Except(new[] { Path.Combine(basefolder, "OrbisTOC.bin") }, StringComparer.InvariantCultureIgnoreCase));
             DirectoryInfo folder = new DirectoryInfo(basefolder);
             var folders = folder.GetDirectories();
             if (folders.Length != 0)
@@ -63,7 +63,7 @@ namespace AutoTOC
                     //BioGame, only do certain folders
                     foreach (DirectoryInfo f in folders)
                     {
-                        if (f.Name == "CookedPCConsole" || f.Name == "Movies")
+                        if (f.Name == "CookedOrbis" || f.Name == "Movies")
                             res.AddRange(GetFiles(Path.Combine(basefolder, f.Name), isLE2LE3));
                         // LE2 and LE3 have the DLC folders included in TOC
                         else if (isLE2LE3 && f.Name == "DLC")
